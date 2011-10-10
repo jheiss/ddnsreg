@@ -1,0 +1,4 @@
+This is a collection of scripts to pull DHCP lease information from
+various home routers (U-verse, FIOS, etc.) and update a dynamic DNS
+(DDNS) server with that info.
+

@@ -1,0 +1,97 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use LWP::Simple;   # get
+use Net::hostent;  # gethostby*
+use Socket;        # inet_ntoa
+
+my $dnsdomain = 'example.com';
+my $ddnskey = '0f0f0f0f0f0f0f0f0f0f0f==';
+
+my $devicename;
+my $deviceip;
+my $address_on_next_line;
+my $status_on_next_line;
+my $contents = get('http://192.168.1.254/xslt?PAGE=C_2_4') or die;
+for (split /^/, $contents)
+{
+	chomp;
+
+	# Examples:
+	# <h3>Device: 192.168.1.67</h3>
+	# <h3>Device: fog</h3>
+	if (/Device: ([^<]+)/)
+	{
+		$devicename = $1;
+		undef $deviceip;
+
+		# Skip devices that didn't provide a name and are thus reported
+		# by IP address.
+		if ($devicename =~ /^\d/)
+		{
+			undef $devicename;
+			next;
+		}
+	}
+	elsif (/Current Address/)
+	{
+		$address_on_next_line = 1;
+	}
+	elsif ($address_on_next_line)
+	{
+		$address_on_next_line = 0;
+		if (/<td>(.+)<\/td>/)
+		{
+			$deviceip = $1;
+		}
+	}
+	elsif (/Device Status/)
+	{
+		$status_on_next_line = 1;
+	}
+	elsif ($status_on_next_line)
+	{
+		$status_on_next_line = 0;
+		if (/Connected DHCP/ && $devicename && $deviceip)
+		{
+			ddns_register($devicename, $deviceip);
+		}
+
+		undef $devicename;
+		undef $deviceip;
+	}
+}
+
+sub ddns_register
+{
+	my ($devicename, $deviceip) = @_;
+
+	my $cleanname = $devicename;
+	($cleanname) = split(/\./, $cleanname);
+	$cleanname = lc($cleanname);
+
+	#print "name: $cleanname, ip: $deviceip\n";
+
+	my $ddnsname = "$cleanname.$dnsdomain";
+
+	my $h = gethostbyname($ddnsname);
+	my $currentip;
+	if ($h && $h->addr)
+	{
+		$currentip = inet_ntoa($h->addr);
+	}
+	#print "current ip: $currentip\n";
+
+	if (!$currentip || $currentip ne $deviceip)
+	{
+		print "Need to update $cleanname\n";
+		open(my $nsfh, '|-', 'nsupdate') or die;
+		print $nsfh "key DSL_KEY $ddnskey\n";
+		print $nsfh "update delete $ddnsname A\n";
+		print $nsfh "update add $ddnsname 86400 A $deviceip\n";
+		print $nsfh "send\n";
+		close($nsfh);
+	}
+}
+

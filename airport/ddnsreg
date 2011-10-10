@@ -1,0 +1,6 @@
+#!/bin/sh
+
+# Unfortunately dhcpClientID is an empty string here, although some
+# hosts have a hostname in that field in the GUI utility.
+snmpwalk -v 2c -c public -M +. -m AIRPORT-BASESTATION-3-MIB 10.0.1.1 dhcpClientsTable
+

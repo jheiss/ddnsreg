@@ -1,0 +1,64 @@
+#!/usr/bin/ruby -w
+
+require 'socket'
+require 'openssl'
+require 'resolv'
+
+# In addition to setting these to the appropriate values you'll need to
+# enable Advanced -> Local Administration -> Using Secure Telnet over
+# SSL Port in the web UI
+USERNAME = 'admin'
+PASSWORD = 'password'
+DDNSKEY = '0f0f0f0f0f0f0f0f0f0f0f=='
+DNSDOMAIN = 'example.com'
+
+def ddns_register(devicename, deviceip)
+	cleanname = devicename.split('.').first.downcase
+	ddnsname = "#{cleanname}.#{DNSDOMAIN}"
+	begin
+		currentip = Resolv.getaddress(ddnsname)
+	rescue Resolv::ResolvError
+	end
+	if (!currentip || currentip != deviceip)
+		puts "Need to update #{cleanname}"
+		IO.popen('nsupdate', 'w') do |pipe|
+			pipe.puts "key DSL_KEY #{DDNSKEY}"
+			pipe.puts "update delete #{ddnsname} A"
+			pipe.puts "update add #{ddnsname} 86400 A #{deviceip}"
+			pipe.puts "send"
+		end
+	end
+end
+
+socket = TCPSocket.new('192.168.1.1', 992)
+ssl_context = OpenSSL::SSL::SSLContext.new()
+sslsocket = OpenSSL::SSL::SSLSocket.new(socket, ssl_context)
+sslsocket.sync_close = true
+sslsocket.connect
+sslsocket.puts(USERNAME)
+sslsocket.puts(PASSWORD)
+sslsocket.puts('conf print dev/br0/dhcps/lease')
+sslsocket.puts('exit')
+parse = false
+entry = nil
+leases = {}
+while line = sslsocket.gets
+	# Lines end with "\r\r\n", takes a double-chomp to clean them
+	line.chomp!.chomp!
+	if line == '(lease'
+		parse = true
+	elsif parse
+		if line =~ /^  \((\d+)/
+			entry = $1
+			leases[entry] = {}
+		elsif line =~ /^    \((\w+)\((.*)\)\)/
+			key = $1
+			value = $2
+			leases[entry][key] = value
+		end
+	end
+end
+leases.each_value do |lease|
+	ddns_register(lease['hostname'], lease['ip'])
+end
+

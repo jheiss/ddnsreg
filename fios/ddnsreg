@@ -44,7 +44,8 @@ entry = nil
 leases = {}
 while line = sslsocket.gets
 	# Lines end with "\r\r\n", takes a double-chomp to clean them
-	line.chomp!.chomp!
+	line.chomp!
+	line.chomp!
 	if line == '(lease'
 		parse = true
 	elsif parse
